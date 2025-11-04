@@ -1,36 +1,39 @@
-name: Daily Job Search Automation
+name: Daily Job Scraper
 
 on:
   schedule:
-    - cron: '30 2 * * *'   # everyday 8AM IST → 2:30 UTC, adjust later if needed
+    - cron: "30 2 * * *"   # 8 AM IST daily
   workflow_dispatch:
 
 jobs:
-  run-job-scraper:
+  scrape:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout repo
         uses: actions/checkout@v3
 
-      - name: Set up Python
+      - name: Setup Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.10'
+          python-version: '3.11'
 
-      - name: Install dependencies
+      - name: Install Python dependencies
         run: |
+          pip install --upgrade pip
           pip install -r requirements.txt
+          python -m playwright install chromium   # VERY IMPORTANT FIX
 
-      - name: Install Playwright Browsers
-        run: |
-          python -m playwright install
-
-      - name: Run Job Scraper
+      - name: Run Scraper
         env:
           EMAIL_USER: ${{ secrets.EMAIL_USER }}
           EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
-          EMAIL_SMTP_SERVER: ${{ secrets.EMAIL_SMTP_SERVER }}
-          EMAIL_SMTP_PORT: ${{ secrets.EMAIL_SMTP_PORT }}
         run: |
+          echo "[*] Starting scraping"
           python jobs_scraper.py
+
+      - name: Upload Results Artifact (Optional)
+        uses: actions/upload-artifact@v3
+        with:
+          name: scraped_jobs
+          path: scraped_jobs.json
