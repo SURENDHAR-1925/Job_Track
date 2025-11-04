@@ -33,4 +33,4 @@ jobs:
           EMAIL_SMTP_SERVER: ${{ secrets.EMAIL_SMTP_SERVER }}
           EMAIL_SMTP_PORT: ${{ secrets.EMAIL_SMTP_PORT }}
         run: |
-          python job_scraper.py
+          python jobs_scraper.py
