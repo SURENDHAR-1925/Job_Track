@@ -27,7 +27,7 @@ jobs:
         with:
           node-version: '18'
 
-      - name: Install Playwright browsers
+      - name: Install Playwright Browsers
         run: playwright install
 
       - name: Run scraper
