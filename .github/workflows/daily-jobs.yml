@@ -1,0 +1,32 @@
+name: Daily Job Search Automation
+
+on:
+  schedule:
+    - cron: "30 2 * * *"   # 8 AM IST
+    - cron: "30 13 * * *"  # 7 PM IST
+  workflow_dispatch:
+
+jobs:
+  run-job-scraper:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run job scraper
+        run: python jobs_scraper.py
+        env:
+          EMAIL_SMTP_SERVER: ${{ secrets.EMAIL_SMTP_SERVER }}
+          EMAIL_SMTP_PORT: ${{ secrets.EMAIL_SMTP_PORT }}
+          EMAIL_USER: ${{ secrets.EMAIL_USER }}
+          EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
+          EMAIL_TO: ${{ secrets.EMAIL_TO }}
