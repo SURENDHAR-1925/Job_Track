@@ -28,7 +28,7 @@ jobs:
         with:
           node-version: '18'
 
-      - name: Install Browsers (Chromium)
+      - name: Install Playwright Browsers
         run: npx playwright install chromium
 
       - name: Run scraper
