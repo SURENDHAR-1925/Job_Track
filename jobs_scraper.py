@@ -117,7 +117,7 @@ def parse_linkedin(html: str) -> List[Dict]:
 def scrape_all(keys: List[str]) -> List[Dict]:
     results = []
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
+        browser = p.chromium.launch(headless=True, args=["--no-sandbox"])
         page = browser.new_page()
 
         for pf in PLATFORMS:
