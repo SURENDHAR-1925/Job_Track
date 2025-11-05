@@ -32,7 +32,9 @@ jobs:
           EMAIL_USER: ${{ secrets.EMAIL_USER }}
           EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
           EMAIL_TO: ${{ secrets.EMAIL_TO }}
+          RAPIDAPI_KEY: ${{ secrets.RAPIDAPI_KEY }}   # 👈 add this line
         run: python jobs_scraper.py
+
 
       - name: Upload debug HTML
         if: always()
