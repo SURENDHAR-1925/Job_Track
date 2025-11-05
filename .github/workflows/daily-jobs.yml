@@ -2,8 +2,8 @@ name: Daily Job Search
 
 on:
   schedule:
-    - cron: "30 2 * * *"   # 8 AM IST (2:30 UTC)
-    - cron: "30 13 * * *"  # 7 PM IST (1:30 PM UTC)
+    - cron: "30 2 * * *"
+    - cron: "30 13 * * *"
   workflow_dispatch:
 
 jobs:
@@ -22,15 +22,12 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Install Playwright Browsers
-        run: playwright install chromium
-
-      - name: Run scraper
+      - name: Run job fetcher
         env:
           EMAIL_SMTP_SERVER: ${{ secrets.EMAIL_SMTP_SERVER }}
           EMAIL_SMTP_PORT: ${{ secrets.EMAIL_SMTP_PORT }}
           EMAIL_USER: ${{ secrets.EMAIL_USER }}
           EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
           EMAIL_TO: ${{ secrets.EMAIL_TO }}
-          RAPIDAPI_KEY: ${{ secrets.RAPIDAPI_KEY }}   # 👈 VERY IMPORTANT
+          RAPIDAPI_KEY: ${{ secrets.RAPIDAPI_KEY }}
         run: python jobs_scraper.py
