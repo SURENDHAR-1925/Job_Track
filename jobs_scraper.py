@@ -5,6 +5,7 @@ import os
 import time
 import smtplib
 import pandas as pd
+from pathlib import Path
 from typing import List, Dict
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -14,16 +15,18 @@ from playwright.sync_api import sync_playwright
 from bs4 import BeautifulSoup
 
 # ----- CONFIG -----
-KEYWORDS = ["Software Developer", "UI/UX Designer", "Frontend Developer", "Software Engineer"]
+KEYWORDS = ["Software Developer", "UI/UX Designer", "Frontend Developer", "Software Engineer","Data Analyst"]
 PLATFORMS = ["naukri", "internshala", "linkedin"]
 MAX_PER_PLATFORM = 20
 CSV_FILENAME = "job_results.csv"
 
+# create folder for debug HTML
+DEBUG_HTML_DIR = Path("debug_html")
+DEBUG_HTML_DIR.mkdir(exist_ok=True)
 
 # ----- HELPERS -----
 def normalize_text(s: str) -> str:
     return " ".join(s.split()) if s else ""
-
 
 def build_queries(keywords: List[str], platform: str) -> List[str]:
     qs = []
@@ -32,22 +35,21 @@ def build_queries(keywords: List[str], platform: str) -> List[str]:
         kw_plus = kw.replace(" ", "+")
         kw_url = kw.replace(" ", "%20")
 
-        match platform:
-            case "naukri":
-                qs.append(f"https://www.naukri.com/{kw_dash}-jobs")
-            case "internshala":
-                qs.append(f"https://internshala.com/internships/{kw_dash}-internship")
-            # case "indeed":
-            #     qs.append(f"https://www.indeed.co.in/jobs?q={kw_plus}&l=")
-            case "linkedin":
-                qs.append(f"https://www.linkedin.com/jobs/search?keywords={kw_url}")
-            # case "google":
-            #     qs.append(f"https://www.google.com/search?q={kw_plus}+jobs")
-
+        if platform == "naukri":
+            qs.append(f"https://www.naukri.com/{kw_dash}-jobs")
+        elif platform == "internshala":
+            qs.append(f"https://internshala.com/internships/{kw_dash}-internship")
+        elif platform == "linkedin":
+            qs.append(f"https://www.linkedin.com/jobs/search?keywords={kw_url}")
     return qs
 
+def save_debug_html(platform: str, idx: int, html: str):
+    fname = DEBUG_HTML_DIR / f"{platform}_{idx}.html"
+    with open(fname, "w", encoding="utf-8") as f:
+        f.write(html)
+    print(f"[debug] Saved HTML -> {fname}")
 
-# ---- PARSERS ----
+# ----- PARSERS -----
 def parse_naukri(html: str) -> List[Dict]:
     soup = BeautifulSoup(html, "lxml")
     cards = soup.select("article.jobTuple, .jobTuple")[:MAX_PER_PLATFORM]
@@ -61,7 +63,6 @@ def parse_naukri(html: str) -> List[Dict]:
         data.append({"title": title, "company": company, "location": loc, "snippet": snippet, "link": link, "source": "Naukri"})
     return data
 
-
 def parse_internshala(html: str) -> List[Dict]:
     soup = BeautifulSoup(html, "lxml")
     data = []
@@ -73,102 +74,93 @@ def parse_internshala(html: str) -> List[Dict]:
         link = "https://internshala.com" + title_tag["href"] if title_tag and title_tag.has_attr("href") else ""
         data.append({"title": title, "company": company, "location": loc, "snippet": "", "link": link, "source": "Internshala"})
     return data
-
-
-def parse_indeed(html: str) -> List[Dict]:
-    soup = BeautifulSoup(html, "lxml")
-    data = []
-    for card in soup.select("a.tapItem, .result")[:MAX_PER_PLATFORM]:
-        title = normalize_text(card.select_one("h2.jobTitle, .jobTitle").get_text() if (card.select_one("h2.jobTitle") or card.select_one(".jobTitle")) else "")
-        company = normalize_text(card.select_one(".companyName").get_text() if card.select_one(".companyName") else "")
-        loc = normalize_text(card.select_one(".companyLocation").get_text() if card.select_one(".companyLocation") else "")
-        href = card["href"] if card.has_attr("href") else ""
-        link = href if "http" in href else ("https://www.indeed.co.in" + href if href else "")
-        snippet = normalize_text(card.select_one(".job-snippet").get_text() if card.select_one(".job-snippet") else "")
-        data.append({"title": title, "company": company, "location": loc, "snippet": snippet, "link": link, "source": "Indeed"})
-    return data
-
-
-def parse_google(html: str) -> List[Dict]:
-    soup = BeautifulSoup(html, "lxml")
-    results = []
-    for card in soup.select("div")[:MAX_PER_PLATFORM * 4]:
-        text = card.get_text(" ", strip=True)
-        if len(text) > 30 and any(x in text.lower() for x in ["company", "hiring", "jobs"]):
-            results.append({"title": text[:80] + "...", "company": "", "location": "", "snippet": text, "link": "", "source": "GoogleSearch"})
-            if len(results) >= MAX_PER_PLATFORM:
-                break
-    return results
-
-
 def parse_linkedin(html: str) -> List[Dict]:
     soup = BeautifulSoup(html, "lxml")
     results = []
-    for card in soup.select(".result-card, .jobs-search-results__list-item")[:MAX_PER_PLATFORM]:
-        title = normalize_text(card.select_one("h3").get_text() if card.select_one("h3") else "")
-        company = normalize_text(card.select_one(".result-card__subtitle, .job-card-container__company-name").get_text() if card.select_one(".result-card__subtitle, .job-card-container__company-name") else "")
-        loc = normalize_text(card.select_one(".job-result-card__location").get_text() if card.select_one(".job-result-card__location") else "")
+    for card in soup.select(".jobs-search-results__list-item, .job-card-container, .result-card")[:MAX_PER_PLATFORM]:
+        title = normalize_text(card.select_one("h3, .job-card-list__title, .result-card__title").get_text() if card.select_one("h3, .job-card-list__title, .result-card__title") else "")
+        company = normalize_text(card.select_one(".job-card-container__company-name, .result-card__subtitle, .job-result-card__subtitle").get_text() if card.select_one(".job-card-container__company-name, .result-card__subtitle, .job-result-card__subtitle") else "")
         link = card.select_one("a")["href"] if card.select_one("a") and card.select_one("a").has_attr("href") else ""
-        results.append({"title": title, "company": company, "location": loc, "snippet": "", "link": link, "source": "LinkedIn"})
+        results.append({"title": title, "company": company, "location": "", "snippet": "", "link": link, "source": "LinkedIn"})
     return results
 
-
-# SCRAPER
-def scrape_all(keys: List[str]) -> List[Dict]:
+# ----- SCRAPER -----
+def scrape_all(keywords):
     results = []
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True, args=["--no-sandbox"])
-        page = browser.new_page()
+    ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
-        for pf in PLATFORMS:
-            data = []
-            for q in build_queries(keys, pf):
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
+        context = browser.new_context(user_agent=ua, viewport={"width":1280,"height":800}, locale="en-US")
+        page = context.new_page()
+
+        for platform in PLATFORMS:
+            print(f"[+] Starting platform: {platform}")
+            queries = build_queries(KEYWORDS, platform)
+            platform_results = []
+
+            for idx, q in enumerate(queries, 1):
+                print(f"[+] Visiting ({platform}) {q}")
                 try:
                     page.goto(q, timeout=60000)
                     time.sleep(5)
                     html = page.content()
-                    match pf:
-                        case "naukri": data.extend(parse_naukri(html))
-                        case "internshala": data.extend(parse_internshala(html))
-                        case "indeed": data.extend(parse_indeed(html))
-                        case "google": data.extend(parse_google(html))
-                        case "linkedin": data.extend(parse_linkedin(html))
+                    save_debug_html(platform, idx, html)
+
+                    if platform == "naukri":
+                        platform_results.extend(parse_naukri(html))
+                    elif platform == "internshala":
+                        platform_results.extend(parse_internshala(html))
+                    elif platform == "linkedin":
+                        platform_results.extend(parse_linkedin(html))
                 except Exception as e:
-                    print(f"[!] {pf} error {e}")
+                    print(f"[!] Error visiting {q}: {e}")
+
+                time.sleep(1.2)
 
             # dedupe
             seen = set()
-            final = []
-            for r in data:
-                key = r.get("link") or (r["title"] + "|" + r["company"])
-                if key in seen: continue
+            dedup = []
+            for r in platform_results:
+                key = (r.get("link") or (r.get("title","") + "|" + r.get("company",""))).strip()
+                if not key or key in seen:
+                    continue
                 seen.add(key)
-                final.append(r)
+                dedup.append(r)
 
-            results.extend(final[:MAX_PER_PLATFORM])
+            print(f"[+] {platform} returned {len(dedup)} jobs")
+            results.extend(dedup[:MAX_PER_PLATFORM])
 
+        context.close()
         browser.close()
+
+    print(f"[*] Total results found: {len(results)}")
     return results
 
-
+# ----- SAVE & EMAIL -----
 def save_csv(data, fname=CSV_FILENAME):
     df = pd.DataFrame(data or [], columns=["title","company","location","snippet","link","source"])
     df.to_csv(fname, index=False)
     return fname
 
+def make_html(items: List[Dict]):
+    html = [f"<h2>Job Alerts - {time.strftime('%Y-%m-%d')}</h2>", "<ol>"]
+    for x in items:
+        html.append(f"<li><b>{x['title']}</b> - {x['company']}<br><a href='{x['link']}'>Apply</a> <br><small>{x['source']}</small></li>")
+    html.append("</ol>")
+    return "\n".join(html)
 
 def send_email(body_html, attach=None):
     server = os.environ["EMAIL_SMTP_SERVER"]
-    port = int(os.environ["EMAIL_SMTP_PORT"])
-    user = os.environ["EMAIL_USER"]
-    pwd = os.environ["EMAIL_PASS"]
-    to = os.environ["EMAIL_TO"]
+    port = int(os.environ["EMAIL_SMTP_PORT"].strip())
+    user = os.environ["EMAIL_USER"].strip()
+    pwd = os.environ["EMAIL_PASS"].strip()
+    to = os.environ["EMAIL_TO"].strip()
 
     msg = MIMEMultipart()
     msg["From"] = user
     msg["To"] = to
     msg["Subject"] = "Daily Job Alerts"
-
     msg.attach(MIMEText(body_html, "html"))
 
     if attach and os.path.exists(attach):
@@ -182,26 +174,18 @@ def send_email(body_html, attach=None):
     s = smtplib.SMTP(server, port, timeout=60)
     s.starttls()
     s.login(user, pwd)
-    s.sendmail(user, to, msg.as_string())
+    s.sendmail(user, [to], msg.as_string())
     s.quit()
+    print(f"[+] Email sent to {to}")
 
-
-def make_html(items: List[Dict]):
-    html = [f"<h2>Job Alerts - {time.strftime('%Y-%m-%d')}</h2>", "<ol>"]
-    for x in items:
-        html.append(f"<li><b>{x['title']}</b> - {x['company']}<br><a href='{x['link']}'>Apply</a> <br><small>{x['source']}</small></li>")
-    html.append("</ol>")
-    return "\n".join(html)
-
-
+# ----- MAIN -----
 if __name__ == "__main__":
     all_jobs = scrape_all(KEYWORDS)
 
-    # keyword final filtering
+    # final keyword filtering
     keys = [k.lower() for k in KEYWORDS]
     filtered = []
     seen = set()
-
     for j in all_jobs:
         txt = (j["title"] + j["company"] + j["snippet"]).lower()
         if any(k in txt for k in keys):
@@ -213,4 +197,4 @@ if __name__ == "__main__":
     csv_file = save_csv(filtered)
     html_body = make_html(filtered)
     send_email(html_body, csv_file)
-    print("Jobs sent:", len(filtered))
+    print("[*] Done. Jobs sent:", len(filtered))
