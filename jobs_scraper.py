@@ -30,19 +30,28 @@ def fetch_jobs(keyword):
     }
 
     params = {
-        "query": keyword,
+        "query": f"{keyword} jobs in India",
         "page": "1",
         "num_pages": "1",
-        "country": "in",  # change 'us' to 'in' for Indian jobs
+        "country": "in",
         "date_posted": "all"
     }
 
     try:
         response = requests.get(API_URL, headers=headers, params=params)
-        data = response.json()
-        results = []
+        print(f"[DEBUG] Request URL: {response.url}")
+        print(f"[DEBUG] Status: {response.status_code}")
 
-        for job in data.get("data", [])[:MAX_RESULTS]:
+        data = response.json()
+        print(f"[DEBUG] Keys in response: {list(data.keys())}")
+
+        # Save raw JSON for debugging
+        with open("api_debug.json", "w", encoding="utf-8") as f:
+            import json
+            json.dump(data, f, indent=2)
+
+        results = []
+        for job in data.get("data", []):
             results.append({
                 "title": job.get("job_title", ""),
                 "company": job.get("employer_name", ""),
@@ -51,6 +60,8 @@ def fetch_jobs(keyword):
                 "link": job.get("job_apply_link", ""),
                 "source": job.get("job_publisher", "")
             })
+
+        print(f"[+] Found {len(results)} jobs for {keyword}")
         return results
     except Exception as e:
         print(f"[!] Error fetching {keyword}: {e}")
