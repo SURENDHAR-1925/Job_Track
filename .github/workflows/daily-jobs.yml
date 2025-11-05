@@ -38,3 +38,10 @@ jobs:
           EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
           EMAIL_TO: ${{ secrets.EMAIL_TO }}
         run: python jobs_scraper.py
+
+      - name: Upload debug HTML files
+        uses: actions/upload-artifact@v3
+        with:
+          name: debug-html
+          path: debug_html/
+
