@@ -2,8 +2,8 @@ name: Daily Job Search
 
 on:
   schedule:
-    - cron: "30 2 * * *"   # 8 AM IST (2:30 UTC)
-    - cron: "30 13 * * *"  # 7 PM IST (13:30 UTC)
+    - cron: "30 2 * * *"   # 8 AM IST
+    - cron: "30 13 * * *"  # 7 PM IST
   workflow_dispatch:
 
 jobs:
@@ -22,13 +22,8 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Setup Node
-        uses: actions/setup-node@v3
-        with:
-          node-version: '18'
-
       - name: Install Playwright Browsers
-        run: python -m playwright install
+        run: playwright install chromium
 
       - name: Run scraper
         env:
@@ -39,9 +34,9 @@ jobs:
           EMAIL_TO: ${{ secrets.EMAIL_TO }}
         run: python jobs_scraper.py
 
-      - name: Upload debug HTML files
+      - name: Upload debug HTML
+        if: always()
         uses: actions/upload-artifact@v3
         with:
           name: debug-html
           path: debug_html/
-
