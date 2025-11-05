@@ -1,7 +1,7 @@
 playwright==1.47.0
-beautifulsoup4==4.12.2
 lxml==4.9.3
 python-dateutil==2.8.2
+requests==2.32.3
+beautifulsoup4==4.12.2
 pandas==2.2.2
-requests==2.31.0
 python-dotenv==1.0.1
