@@ -15,7 +15,7 @@ from bs4 import BeautifulSoup
 
 # ----- CONFIG -----
 KEYWORDS = ["Software Developer", "UI/UX Designer", "Frontend Developer", "Software Engineer"]
-PLATFORMS = ["naukri", "internshala", "indeed", "google", "linkedin"]
+PLATFORMS = ["naukri", "internshala", "linkedin"]
 MAX_PER_PLATFORM = 20
 CSV_FILENAME = "job_results.csv"
 
@@ -37,12 +37,12 @@ def build_queries(keywords: List[str], platform: str) -> List[str]:
                 qs.append(f"https://www.naukri.com/{kw_dash}-jobs")
             case "internshala":
                 qs.append(f"https://internshala.com/internships/{kw_dash}-internship")
-            case "indeed":
-                qs.append(f"https://www.indeed.co.in/jobs?q={kw_plus}&l=")
+            # case "indeed":
+            #     qs.append(f"https://www.indeed.co.in/jobs?q={kw_plus}&l=")
             case "linkedin":
                 qs.append(f"https://www.linkedin.com/jobs/search?keywords={kw_url}")
-            case "google":
-                qs.append(f"https://www.google.com/search?q={kw_plus}+jobs")
+            # case "google":
+            #     qs.append(f"https://www.google.com/search?q={kw_plus}+jobs")
 
     return qs
 
@@ -124,8 +124,8 @@ def scrape_all(keys: List[str]) -> List[Dict]:
             data = []
             for q in build_queries(keys, pf):
                 try:
-                    page.goto(q, timeout=35000)
-                    time.sleep(2)
+                    page.goto(q, timeout=60000)
+                    time.sleep(5)
                     html = page.content()
                     match pf:
                         case "naukri": data.extend(parse_naukri(html))
