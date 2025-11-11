@@ -1,4 +1,5 @@
 import os
+import re
 import requests
 import pandas as pd
 
@@ -13,11 +14,15 @@ KEYWORDS = [
     "Software Developer"
 ]
 
+# ✅ Only keep these exact sources
 VALID_SOURCES = ["linkedin", "indeed", "internshala", "naukri"]
-BLACKLIST_SOURCES = [
-    "whatjobs", "recruit.net", "career", "careers", "roche", "adobe",
-    "agoda", "ebay", "barclays", "philips", "accenture", "hitachi",
-    "netapp", "dice", "ziprecruiter", "monster", "glassdoor", "simplyhired"
+
+# 🚫 Block anything containing these patterns
+BLOCK_PATTERNS = [
+    r"what.?jobs", r"career", r"careers", r"recruit", r"roche", r"adobe",
+    r"agoda", r"ebay", r"barclays", r"philips", r"accenture", r"hitachi",
+    r"netapp", r"dice", r"ziprecruiter", r"monster", r"glassdoor",
+    r"simplyhired", r"energy", r"bnp", r"shaw", r"team", r"paribas"
 ]
 
 VALID_CITIES = ["chennai", "bengaluru", "coimbatore"]
@@ -29,16 +34,16 @@ CSV_FILENAME = "job_results.csv"
 
 # ---------------- FILTER FUNCTIONS ----------------
 def is_valid_source(source: str) -> bool:
-    """Keep only LinkedIn, Indeed, Internshala, or Naukri."""
+    """Allow only exact trusted sources; reject common spam/career sites."""
     if not source:
         return False
     s = source.strip().lower()
 
-    # Reject unwanted or fake publisher names
-    if any(bad in s for bad in BLACKLIST_SOURCES):
+    # Reject if any blocked pattern matches
+    if any(re.search(pat, s) for pat in BLOCK_PATTERNS):
         return False
 
-    # Accept only allowed sources
+    # Accept if the name clearly matches allowed sources
     return any(ok in s for ok in VALID_SOURCES)
 
 def is_valid_city(city: str) -> bool:
