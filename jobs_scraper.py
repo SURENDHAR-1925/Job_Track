@@ -1,7 +1,6 @@
 import os
 import requests
 import pandas as pd
-from datetime import datetime
 
 # ---------------- CONFIG ----------------
 API_URL = "https://jsearch.p.rapidapi.com/search"
@@ -16,12 +15,15 @@ KEYWORDS = [
 
 VALID_SOURCES = ["linkedin", "indeed", "internshala", "naukri"]
 BLACKLIST_SOURCES = [
-    "whatjobs", "recruit.net", "careers", "roche", "adobe", "shaw",
-    "hitachi", "netapp", "philips", "accenture", "ziprecruiter"
+    "whatjobs", "recruit.net", "career", "careers", "roche", "adobe",
+    "agoda", "ebay", "barclays", "philips", "accenture", "hitachi",
+    "netapp", "dice", "ziprecruiter", "monster", "glassdoor", "simplyhired"
 ]
 
 VALID_CITIES = ["chennai", "bengaluru", "coimbatore"]
-FRESHER_KEYWORDS = ["fresher", "0 years", "0 year", "entry level", "graduate trainee", "new graduate"]
+FRESHER_KEYWORDS = [
+    "fresher", "0 years", "0 year", "entry level", "graduate trainee", "new graduate"
+]
 
 CSV_FILENAME = "job_results.csv"
 
@@ -30,9 +32,13 @@ def is_valid_source(source: str) -> bool:
     """Keep only LinkedIn, Indeed, Internshala, or Naukri."""
     if not source:
         return False
-    s = source.lower()
+    s = source.strip().lower()
+
+    # Reject unwanted or fake publisher names
     if any(bad in s for bad in BLACKLIST_SOURCES):
         return False
+
+    # Accept only allowed sources
     return any(ok in s for ok in VALID_SOURCES)
 
 def is_valid_city(city: str) -> bool:
