@@ -1,23 +1,11 @@
-#!/usr/bin/env python3
-"""
-Diagnostic job fetcher for JSearch (RapidAPI).
-Saves raw responses, accepted rows, rejected rows (with reason).
-Use RAPIDAPI_KEY env var (or RAPIDAPI_KEY hardcoded fallback).
-"""
-
 import os
 import requests
 import pandas as pd
-import json
-import time
 from datetime import datetime
 
-# ---------- CONFIG ----------
+# ---------------- CONFIG ----------------
 API_URL = "https://jsearch.p.rapidapi.com/search"
-API_KEY = os.environ.get("RAPIDAPI_KEY") or os.environ.get("JSEARCH_API_KEY") or ""
-if not API_KEY:
-    print("[ERROR] RAPIDAPI_KEY not found in environment. Set RAPIDAPI_KEY and re-run.")
-    # continue: script will likely fail network calls but we still keep the structure
+API_KEY = os.environ.get("RAPIDAPI_KEY") or "YOUR_RAPIDAPI_KEY"
 
 KEYWORDS = [
     "Software Engineer",
@@ -26,135 +14,106 @@ KEYWORDS = [
     "Software Developer"
 ]
 
-VALID_SOURCES = ["linkedin", "indeed", "internshala"]   # lower-case substrings to match
-VALID_CITIES = ["chennai", "bengaluru", "coimbatore"]   # lower-case substrings to match
-FRESHER_KEYWORDS = ["fresher", "0 years", "0 year", "entry level", "graduate trainee", "freshers"]
+VALID_SOURCES = ["linkedin", "indeed", "internshala", "naukri"]
+BLACKLIST_SOURCES = [
+    "whatjobs", "recruit.net", "careers", "roche", "adobe", "shaw",
+    "hitachi", "netapp", "philips", "accenture", "ziprecruiter"
+]
 
-OUT_ACCEPTED = "accepted_jobs.csv"
-OUT_REJECTED = "rejected_jobs.csv"
-API_DEBUG_DIR = "api_debug"
+VALID_CITIES = ["chennai", "bengaluru", "coimbatore"]
+FRESHER_KEYWORDS = ["fresher", "0 years", "0 year", "entry level", "graduate trainee", "new graduate"]
 
-os.makedirs(API_DEBUG_DIR, exist_ok=True)
+CSV_FILENAME = "job_results.csv"
 
-# ---------- helpers ----------
-def call_jsearch(query, page=1):
+# ---------------- FILTER FUNCTIONS ----------------
+def is_valid_source(source: str) -> bool:
+    """Keep only LinkedIn, Indeed, Internshala, or Naukri."""
+    if not source:
+        return False
+    s = source.lower()
+    if any(bad in s for bad in BLACKLIST_SOURCES):
+        return False
+    return any(ok in s for ok in VALID_SOURCES)
+
+def is_valid_city(city: str) -> bool:
+    """Check if city is one of Chennai, Bengaluru, Coimbatore."""
+    if not city:
+        return False
+    city = city.lower()
+    return any(c in city for c in VALID_CITIES)
+
+def is_fresher_job(title: str, desc: str) -> bool:
+    """Detect fresher/0-year roles in title or description."""
+    text = f"{title or ''} {desc or ''}".lower()
+    return any(k in text for k in FRESHER_KEYWORDS)
+
+# ---------------- FETCH JOBS ----------------
+def fetch_jobs(keyword):
     headers = {
         "X-RapidAPI-Key": API_KEY,
         "X-RapidAPI-Host": "jsearch.p.rapidapi.com"
     }
-    params = {
-        "query": query,
-        "page": str(page),
-        "num_pages": "1",
-        "country": "in",
-        "date_posted": "all"
-    }
-    r = requests.get(API_URL, headers=headers, params=params, timeout=30)
-    return r
 
-def lower_of(v):
-    return (v or "").strip().lower()
+    results = []
 
-def is_valid_source_str(pub):
-    pub = lower_of(pub)
-    return any(s in pub for s in VALID_SOURCES)
-
-def is_valid_city_str(city):
-    city = lower_of(city)
-    return any(c in city for c in VALID_CITIES)
-
-def is_fresher_text(title, desc):
-    text = f"{title or ''} {desc or ''}".lower()
-    return any(k in text for k in FRESHER_KEYWORDS)
-
-# ---------- main logic ----------
-all_raw_jobs = []
-accepted = []
-rejected = []
-
-print(f"[*] Starting job fetch: {len(KEYWORDS)} keywords x {len(VALID_CITIES)} cities")
-
-for kw in KEYWORDS:
     for city in VALID_CITIES:
-        q = f"{kw} jobs in {city}"
-        print(f"[*] Querying: {q}")
+        params = {
+            "query": f"{keyword} jobs in {city}",
+            "page": "1",
+            "num_pages": "1",
+            "country": "in",
+            "date_posted": "all"
+        }
+
+        print(f"[*] Fetching: {keyword} in {city}...")
         try:
-            resp = call_jsearch(q)
+            response = requests.get(API_URL, headers=headers, params=params, timeout=30)
+            data = response.json()
+
+            for job in data.get("data", []):
+                source = job.get("job_publisher", "")
+                title = job.get("job_title", "")
+                desc = job.get("job_description", "")
+                city_name = job.get("job_city", "")
+
+                # Apply filters
+                if not is_valid_source(source):
+                    continue
+                if not is_valid_city(city_name):
+                    continue
+                if not is_fresher_job(title, desc):
+                    continue
+
+                results.append({
+                    "title": title,
+                    "company": job.get("employer_name", ""),
+                    "location": f"{city_name}, {job.get('job_country', '')}",
+                    "snippet": desc[:250],
+                    "link": job.get("job_apply_link", ""),
+                    "source": source
+                })
+
         except Exception as e:
-            print(f"[!] Network error for query '{q}': {e}")
-            continue
+            print(f"[!] Error fetching {keyword} in {city}: {e}")
 
-        fname = os.path.join(API_DEBUG_DIR, f"{kw.replace(' ','_')}_{city}_{int(time.time())}.json")
-        try:
-            data = resp.json()
-        except Exception:
-            data = {"error_text": resp.text if resp is not None else "no response"}
+    print(f"[+] {keyword}: {len(results)} matching jobs found.")
+    return results
 
-        # save raw
-        with open(fname, "w", encoding="utf-8") as f:
-            json.dump({"status_code": getattr(resp, "status_code", None), "url": getattr(resp, "url", q), "raw": data}, f, indent=2)
+# ---------------- SAVE TO CSV ----------------
+def save_to_csv(jobs):
+    if not jobs:
+        print("[!] No jobs found.")
+        return None
 
-        print(f"    saved debug -> {fname} (status {getattr(resp,'status_code',None)})")
+    df = pd.DataFrame(jobs)
+    df.to_csv(CSV_FILENAME, index=False, encoding="utf-8")
+    print(f"[+] Saved {len(df)} jobs to {CSV_FILENAME}")
+    return CSV_FILENAME
 
-        items = (data.get("data") if isinstance(data, dict) else None) or []
-        if not items:
-            print(f"    [!] API returned 0 items for: {q}")
-        for j in items:
-            row = {
-                "query_keyword": kw,
-                "query_city": city,
-                "job_title": j.get("job_title"),
-                "employer_name": j.get("employer_name"),
-                "job_city": j.get("job_city"),
-                "job_country": j.get("job_country"),
-                "job_description": j.get("job_description"),
-                "job_apply_link": j.get("job_apply_link"),
-                "job_publisher": j.get("job_publisher"),
-                "raw": json.dumps(j, ensure_ascii=False)
-            }
-            all_raw_jobs.append(row)
+# ---------------- MAIN ----------------
+if __name__ == "__main__":
+    all_jobs = []
+    for kw in KEYWORDS:
+        all_jobs.extend(fetch_jobs(kw))
 
-            # filtering checks and reasons
-            reasons = []
-            pub = lower_of(j.get("job_publisher"))
-            jobcity = lower_of(j.get("job_city"))
-            title = j.get("job_title") or ""
-            desc = j.get("job_description") or ""
-
-            if not is_valid_source_str(pub):
-                reasons.append(f"bad_source: {pub or 'NONE'}")
-            if not is_valid_city_str(jobcity):
-                reasons.append(f"bad_city: {jobcity or 'NONE'}")
-            if not is_fresher_text(title, desc):
-                reasons.append("not_fresher")
-
-            if reasons:
-                rej = dict(row)
-                rej["reject_reasons"] = ";".join(reasons)
-                rejected.append(rej)
-            else:
-                accepted.append(row)
-
-        # be polite
-        time.sleep(0.6)
-
-# ---------- save outputs ----------
-print(f"[*] Raw items collected: {len(all_raw_jobs)}")
-print(f"[*] Accepted count: {len(accepted)}")
-print(f"[*] Rejected count: {len(rejected)}")
-
-if accepted:
-    df_acc = pd.DataFrame(accepted)
-    df_acc.to_csv(OUT_ACCEPTED, index=False, encoding="utf-8")
-    print(f"[+] Accepted jobs saved to {OUT_ACCEPTED}")
-else:
-    print("[!] No accepted jobs found; {OUT_ACCEPTED} not created.")
-
-if rejected:
-    df_rej = pd.DataFrame(rejected)
-    df_rej.to_csv(OUT_REJECTED, index=False, encoding="utf-8")
-    print(f"[+] Rejected jobs saved to {OUT_REJECTED}")
-else:
-    print("[!] No rejected rows (all empty).")
-
-print("[*] Done. Inspect api_debug/*.json, accepted_jobs.csv, rejected_jobs.csv")
+    save_to_csv(all_jobs)
