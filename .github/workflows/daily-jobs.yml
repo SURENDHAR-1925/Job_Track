@@ -1,18 +1,16 @@
-name: Daily Job Search
+name: Daily Job Search (7PM IST)
 
 on:
   schedule:
-    - cron: "30 2 * * *"
-    - cron: "30 13 * * *"
+    - cron: "30 13 * * *"   # 19:00 IST (13:30 UTC) adjust if needed
   workflow_dispatch:
 
 jobs:
   run-scraper:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Setup Python
         uses: actions/setup-python@v4
@@ -20,14 +18,25 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests pandas
 
-      - name: Run job fetcher
+      - name: Run job scraper
         env:
+          RAPIDAPI_KEY: ${{ secrets.RAPIDAPI_KEY }}
           EMAIL_SMTP_SERVER: ${{ secrets.EMAIL_SMTP_SERVER }}
           EMAIL_SMTP_PORT: ${{ secrets.EMAIL_SMTP_PORT }}
           EMAIL_USER: ${{ secrets.EMAIL_USER }}
           EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
           EMAIL_TO: ${{ secrets.EMAIL_TO }}
-          RAPIDAPI_KEY: ${{ secrets.RAPIDAPI_KEY }}
-        run: python jobs_scraper.py
+        run: |
+          python jobs_scraper.py
+
+      - name: Upload artifacts (accepted + rejected)
+        uses: actions/upload-artifact@v4
+        with:
+          name: job-results
+          path: |
+            job_results.csv
+            rejected_jobs.csv
