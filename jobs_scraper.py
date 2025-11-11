@@ -9,7 +9,7 @@ from email.mime.base import MIMEBase
 from email import encoders
 from datetime import datetime
 
-# ----------------- CONFIG -----------------
+# ---------------- CONFIG ----------------
 API_URL = "https://jsearch.p.rapidapi.com/search"
 API_KEY = "38d41a5027msh6d8e74569f19c5ap1bf2cejsn9cb1273e3bbe"
 
@@ -20,20 +20,19 @@ KEYWORDS = [
     "Software Developer"
 ]
 
-# normalized filters
-ALLOWED_SOURCES = ["linkedin", "indeed", "internshala"]
-ALLOWED_CITIES = ["chennai", "bengaluru", "coimbatore"]
+VALID_SOURCES = ["linkedin", "Naukri", "internshala"]
+VALID_CITIES = ["chennai", "bengaluru", "coimbatore"]
 
 CSV_FILENAME = "job_results.csv"
 
-# ----------------- EMAIL CONFIG -----------------
+# ---------------- EMAIL CONFIG ----------------
 SMTP_SERVER = os.environ.get("EMAIL_SMTP_SERVER")
 SMTP_PORT = int(os.environ.get("EMAIL_SMTP_PORT", 587))
 EMAIL_USER = os.environ.get("EMAIL_USER")
 EMAIL_PASS = os.environ.get("EMAIL_PASS")
 EMAIL_TO = os.environ.get("EMAIL_TO")
 
-# ----------------- FETCH JOBS -----------------
+# ---------------- FETCH JOBS ----------------
 def fetch_jobs(keyword):
     headers = {
         "X-RapidAPI-Key": API_KEY,
@@ -41,7 +40,7 @@ def fetch_jobs(keyword):
     }
 
     results = []
-    for city in ALLOWED_CITIES:
+    for city in VALID_CITIES:
         params = {
             "query": f"{keyword} jobs in {city}",
             "page": "1",
@@ -50,7 +49,7 @@ def fetch_jobs(keyword):
             "date_posted": "all"
         }
 
-        print(f"[*] Searching {keyword} in {city}...")
+        print(f"[*] Searching '{keyword}' in {city}...")
         try:
             response = requests.get(API_URL, headers=headers, params=params)
             data = response.json()
@@ -59,13 +58,13 @@ def fetch_jobs(keyword):
                 continue
 
             for job in data["data"]:
-                publisher = job.get("job_publisher", "").strip().lower()
+                publisher = (job.get("job_publisher") or "").strip().lower()
                 city_name = (job.get("job_city") or "").strip().lower()
 
-                # ✅ Fuzzy source and location filtering
-                if not any(src in publisher for src in ALLOWED_SOURCES):
+                # preliminary filter
+                if not any(vsrc in publisher for vsrc in VALID_SOURCES):
                     continue
-                if not any(city in city_name for city in ALLOWED_CITIES):
+                if not any(vcity in city_name for vcity in VALID_CITIES):
                     continue
 
                 results.append({
@@ -78,24 +77,44 @@ def fetch_jobs(keyword):
                 })
 
         except Exception as e:
-            print(f"[!] Error fetching {keyword} in {city}: {e}")
+            print(f"[!] Error fetching '{keyword}' in {city}: {e}")
 
-    print(f"[+] {keyword}: {len(results)} valid jobs found.")
+    print(f"[+] {keyword}: {len(results)} preliminary matches")
     return results
 
 
-# ----------------- SAVE TO CSV -----------------
+# ---------------- SAVE TO CSV ----------------
 def save_to_csv(jobs):
     if not jobs:
-        print("[!] No jobs to save.")
+        print("[!] No jobs found.")
         return None
+
+    # 🧹 Post-filtering: remove anything not matching exactly
     df = pd.DataFrame(jobs)
+
+    def valid_source(s):
+        if not s:
+            return False
+        s = str(s).lower()
+        return any(vsrc in s for vsrc in VALID_SOURCES)
+
+    def valid_city(loc):
+        if not loc:
+            return False
+        loc = str(loc).lower()
+        return any(vcity in loc for vcity in VALID_CITIES)
+
+    before = len(df)
+    df = df[df["source"].apply(valid_source) & df["location"].apply(valid_city)]
+    after = len(df)
+
+    print(f"[+] Filtered {before} → {after} valid rows.")
     df.to_csv(CSV_FILENAME, index=False)
-    print(f"[+] Saved {len(df)} jobs to {CSV_FILENAME}")
+    print(f"[+] Saved {CSV_FILENAME}")
     return CSV_FILENAME
 
 
-# ----------------- EMAIL RESULTS -----------------
+# ---------------- EMAIL RESULTS ----------------
 def send_email(attachment_path, job_count):
     if not (SMTP_SERVER and EMAIL_USER and EMAIL_PASS and EMAIL_TO):
         print("[!] Missing email credentials.")
@@ -123,10 +142,10 @@ def send_email(attachment_path, job_count):
             server.send_message(msg)
         print("[+] Email sent successfully.")
     except Exception as e:
-        print(f"[!] Email sending failed: {e}")
+        print(f"[!] Email failed: {e}")
 
 
-# ----------------- MAIN -----------------
+# ---------------- MAIN ----------------
 if __name__ == "__main__":
     all_jobs = []
     for kw in KEYWORDS:
@@ -134,6 +153,8 @@ if __name__ == "__main__":
 
     if all_jobs:
         csv_path = save_to_csv(all_jobs)
-        send_email(csv_path, len(all_jobs))
+        if csv_path:
+            df = pd.read_csv(csv_path)
+            send_email(csv_path, len(df))
     else:
         print("[!] No matching jobs found.")
