@@ -20,11 +20,11 @@ KEYWORDS = [
     "Software Developer"
 ]
 
-ALLOWED_SOURCES = ["LinkedIn", "Indeed", "Internshala"]
-ALLOWED_CITIES = ["Chennai", "Bengaluru", "Coimbatore"]
+# normalized filters
+ALLOWED_SOURCES = ["linkedin", "indeed", "internshala"]
+ALLOWED_CITIES = ["chennai", "bengaluru", "coimbatore"]
 
 CSV_FILENAME = "job_results.csv"
-MAX_RESULTS = 40
 
 # ----------------- EMAIL CONFIG -----------------
 SMTP_SERVER = os.environ.get("EMAIL_SMTP_SERVER")
@@ -40,7 +40,7 @@ def fetch_jobs(keyword):
         "X-RapidAPI-Host": "jsearch.p.rapidapi.com"
     }
 
-    all_results = []
+    results = []
     for city in ALLOWED_CITIES:
         params = {
             "query": f"{keyword} jobs in {city}",
@@ -56,33 +56,32 @@ def fetch_jobs(keyword):
             data = response.json()
 
             if "data" not in data:
-                print(f"[!] No data for {city}")
                 continue
 
             for job in data["data"]:
-                publisher = job.get("job_publisher", "").strip()
-                city_name = job.get("job_city", "").strip()
+                publisher = job.get("job_publisher", "").strip().lower()
+                city_name = (job.get("job_city") or "").strip().lower()
 
-                # strict source and location filtering
-                if publisher not in ALLOWED_SOURCES:
+                # ✅ Fuzzy source and location filtering
+                if not any(src in publisher for src in ALLOWED_SOURCES):
                     continue
-                if not any(city_name.lower() == c.lower() for c in ALLOWED_CITIES):
+                if not any(city in city_name for city in ALLOWED_CITIES):
                     continue
 
-                all_results.append({
+                results.append({
                     "title": job.get("job_title", ""),
                     "company": job.get("employer_name", ""),
-                    "location": f"{city_name}, {job.get('job_country', '')}",
-                    "snippet": job.get("job_description", "")[:250],
+                    "location": f"{job.get('job_city', '')}, {job.get('job_country', '')}",
+                    "snippet": (job.get("job_description", "") or "")[:250],
                     "link": job.get("job_apply_link", ""),
-                    "source": publisher
+                    "source": job.get("job_publisher", "")
                 })
 
         except Exception as e:
             print(f"[!] Error fetching {keyword} in {city}: {e}")
 
-    print(f"[+] {keyword}: {len(all_results)} valid jobs found.")
-    return all_results
+    print(f"[+] {keyword}: {len(results)} valid jobs found.")
+    return results
 
 
 # ----------------- SAVE TO CSV -----------------
@@ -105,9 +104,9 @@ def send_email(attachment_path, job_count):
     msg = MIMEMultipart()
     msg["From"] = EMAIL_USER
     msg["To"] = EMAIL_TO
-    msg["Subject"] = f"Filtered Jobs (LinkedIn, Indeed, Internshala) - {datetime.now().strftime('%Y-%m-%d')}"
+    msg["Subject"] = f"Daily Jobs (LinkedIn / Indeed / Internshala) - {datetime.now().strftime('%Y-%m-%d')}"
 
-    body = f"Here are {job_count} jobs from LinkedIn, Indeed, and Internshala in Chennai, Bengaluru, and Coimbatore."
+    body = f"Here are {job_count} verified jobs from LinkedIn, Indeed, and Internshala in Chennai, Bengaluru, and Coimbatore."
     msg.attach(MIMEText(body, "plain"))
 
     with open(attachment_path, "rb") as f:
