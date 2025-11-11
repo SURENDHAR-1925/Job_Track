@@ -20,8 +20,9 @@ KEYWORDS = [
     "Software Developer"
 ]
 
-VALID_SOURCES = ["linkedin", "Naukri", "internshala"]
+VALID_SOURCES = ["linkedin", "Narkri", "internshala"]
 VALID_CITIES = ["chennai", "bengaluru", "coimbatore"]
+FRESHER_KEYWORDS = ["fresher", "0 years", "0 year", "entry level", "graduate trainee"]
 
 CSV_FILENAME = "job_results.csv"
 
@@ -60,11 +61,15 @@ def fetch_jobs(keyword):
             for job in data["data"]:
                 publisher = (job.get("job_publisher") or "").strip().lower()
                 city_name = (job.get("job_city") or "").strip().lower()
+                title = (job.get("job_title") or "").lower()
+                desc = (job.get("job_description") or "").lower()
 
-                # preliminary filter
-                if not any(vsrc in publisher for vsrc in VALID_SOURCES):
+                # ✅ Initial filtering
+                if not any(src in publisher for src in VALID_SOURCES):
                     continue
-                if not any(vcity in city_name for vcity in VALID_CITIES):
+                if not any(city in city_name for city in VALID_CITIES):
+                    continue
+                if not any(k in title or k in desc for k in FRESHER_KEYWORDS):
                     continue
 
                 results.append({
@@ -79,7 +84,7 @@ def fetch_jobs(keyword):
         except Exception as e:
             print(f"[!] Error fetching '{keyword}' in {city}: {e}")
 
-    print(f"[+] {keyword}: {len(results)} preliminary matches")
+    print(f"[+] {keyword}: {len(results)} fresher jobs found.")
     return results
 
 
@@ -89,26 +94,28 @@ def save_to_csv(jobs):
         print("[!] No jobs found.")
         return None
 
-    # 🧹 Post-filtering: remove anything not matching exactly
     df = pd.DataFrame(jobs)
 
-    def valid_source(s):
-        if not s:
-            return False
+    # 🧹 Post-filter to clean everything again
+    def is_valid_source(s):
         s = str(s).lower()
-        return any(vsrc in s for vsrc in VALID_SOURCES)
+        return any(src in s for src in VALID_SOURCES)
 
-    def valid_city(loc):
-        if not loc:
-            return False
+    def is_valid_city(loc):
         loc = str(loc).lower()
-        return any(vcity in loc for vcity in VALID_CITIES)
+        return any(city in loc for city in VALID_CITIES)
+
+    def is_fresher(snippet, title):
+        text = f"{title} {snippet}".lower()
+        return any(k in text for k in FRESHER_KEYWORDS)
 
     before = len(df)
-    df = df[df["source"].apply(valid_source) & df["location"].apply(valid_city)]
+    df = df[df["source"].apply(is_valid_source)]
+    df = df[df["location"].apply(is_valid_city)]
+    df = df[df.apply(lambda x: is_fresher(x["snippet"], x["title"]), axis=1)]
     after = len(df)
 
-    print(f"[+] Filtered {before} → {after} valid rows.")
+    print(f"[+] Filtered {before} → {after} final fresher jobs.")
     df.to_csv(CSV_FILENAME, index=False)
     print(f"[+] Saved {CSV_FILENAME}")
     return CSV_FILENAME
@@ -123,9 +130,13 @@ def send_email(attachment_path, job_count):
     msg = MIMEMultipart()
     msg["From"] = EMAIL_USER
     msg["To"] = EMAIL_TO
-    msg["Subject"] = f"Daily Jobs (LinkedIn / Indeed / Internshala) - {datetime.now().strftime('%Y-%m-%d')}"
+    msg["Subject"] = f"Daily Fresher Jobs - {datetime.now().strftime('%Y-%m-%d')}"
 
-    body = f"Here are {job_count} verified jobs from LinkedIn, Indeed, and Internshala in Chennai, Bengaluru, and Coimbatore."
+    body = (
+        f"Here are {job_count} verified fresher/0-year experience jobs "
+        f"from LinkedIn, Indeed, and Internshala "
+        f"in Chennai, Bengaluru, and Coimbatore."
+    )
     msg.attach(MIMEText(body, "plain"))
 
     with open(attachment_path, "rb") as f:
@@ -142,7 +153,7 @@ def send_email(attachment_path, job_count):
             server.send_message(msg)
         print("[+] Email sent successfully.")
     except Exception as e:
-        print(f"[!] Email failed: {e}")
+        print(f"[!] Email sending failed: {e}")
 
 
 # ---------------- MAIN ----------------
@@ -157,4 +168,4 @@ if __name__ == "__main__":
             df = pd.read_csv(csv_path)
             send_email(csv_path, len(df))
     else:
-        print("[!] No matching jobs found.")
+        print("[!] No matching fresher jobs found.")
