@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import os
 import requests
 import pandas as pd
@@ -8,29 +9,45 @@ from email.mime.base import MIMEBase
 from email import encoders
 from datetime import datetime
 
-# ----- CONFIG -----
+# ----------------- CONFIG -----------------
 API_URL = "https://jsearch.p.rapidapi.com/search"
 API_KEY = "38d41a5027msh6d8e74569f19c5ap1bf2cejsn9cb1273e3bbe"
-KEYWORDS = ["Software Developer", "Frontend Developer", "UI UX Designer", "Software Engineer"]
-CSV_FILENAME = "job_results.csv"
-MAX_RESULTS = 20
 
-# ----- EMAIL CONFIG -----
+KEYWORDS = [
+    "Software Engineer",
+    "Frontend Developer",
+    "UI UX Designer",
+    "Software Developer"
+]
+
+# only from these sources
+ALLOWED_SOURCES = ["LinkedIn", "Indeed", "Internshala"]
+
+# only in these locations
+ALLOWED_CITIES = ["Chennai", "Bengaluru", "Coimbatore"]
+
+CSV_FILENAME = "job_results.csv"
+MAX_RESULTS = 30
+
+# ----------------- EMAIL CONFIG -----------------
 SMTP_SERVER = os.environ.get("EMAIL_SMTP_SERVER")
 SMTP_PORT = int(os.environ.get("EMAIL_SMTP_PORT", 587))
 EMAIL_USER = os.environ.get("EMAIL_USER")
 EMAIL_PASS = os.environ.get("EMAIL_PASS")
 EMAIL_TO = os.environ.get("EMAIL_TO")
 
-# ----- FETCH JOBS -----
+# ----------------- FETCH JOBS -----------------
 def fetch_jobs(keyword):
     headers = {
         "X-RapidAPI-Key": API_KEY,
         "X-RapidAPI-Host": "jsearch.p.rapidapi.com"
     }
 
+    # Build query for multiple cities
+    city_query = " OR ".join([f"{keyword} jobs in {city}" for city in ALLOWED_CITIES])
+
     params = {
-        "query": f"{keyword} jobs in India",
+        "query": city_query,
         "page": "1",
         "num_pages": "1",
         "country": "in",
@@ -39,42 +56,38 @@ def fetch_jobs(keyword):
 
     try:
         response = requests.get(API_URL, headers=headers, params=params)
-        print(f"[DEBUG] Request URL: {response.url}")
-        print(f"[DEBUG] Status: {response.status_code}")
-
         data = response.json()
-        print(f"[DEBUG] Keys in response: {list(data.keys())}")
-
-        # Save raw JSON for debugging
-        with open("api_debug.json", "w", encoding="utf-8") as f:
-            import json
-            json.dump(data, f, indent=2)
 
         results = []
         for job in data.get("data", []):
-            results.append({
-                "title": job.get("job_title", ""),
-                "company": job.get("employer_name", ""),
-                "location": f"{job.get('job_city', '')}, {job.get('job_country', '')}",
-                "snippet": job.get("job_description", "")[:250],
-                "link": job.get("job_apply_link", ""),
-                "source": job.get("job_publisher", "")
-            })
+            publisher = job.get("job_publisher", "").lower()
+            city = job.get("job_city", "")
+            if any(source.lower() in publisher for source in ALLOWED_SOURCES) and \
+               any(loc.lower() in city.lower() for loc in ALLOWED_CITIES):
 
-        print(f"[+] Found {len(results)} jobs for {keyword}")
+                results.append({
+                    "title": job.get("job_title", ""),
+                    "company": job.get("employer_name", ""),
+                    "location": f"{job.get('job_city', '')}, {job.get('job_country', '')}",
+                    "snippet": job.get("job_description", "")[:250],
+                    "link": job.get("job_apply_link", ""),
+                    "source": job.get("job_publisher", "")
+                })
+
+        print(f"[+] {keyword}: Found {len(results)} filtered jobs.")
         return results
     except Exception as e:
         print(f"[!] Error fetching {keyword}: {e}")
         return []
 
-# ----- SAVE TO CSV -----
+# ----------------- SAVE TO CSV -----------------
 def save_to_csv(jobs):
     df = pd.DataFrame(jobs)
     df.to_csv(CSV_FILENAME, index=False)
     print(f"[+] Saved {len(df)} jobs to {CSV_FILENAME}")
     return CSV_FILENAME
 
-# ----- EMAIL RESULTS -----
+# ----------------- EMAIL RESULTS -----------------
 def send_email(attachment_path, job_count):
     if not (SMTP_SERVER and EMAIL_USER and EMAIL_PASS and EMAIL_TO):
         print("[!] Missing email credentials.")
@@ -83,9 +96,9 @@ def send_email(attachment_path, job_count):
     msg = MIMEMultipart()
     msg["From"] = EMAIL_USER
     msg["To"] = EMAIL_TO
-    msg["Subject"] = f"Daily Job Alerts ({job_count} new jobs) - {datetime.now().strftime('%Y-%m-%d')}"
+    msg["Subject"] = f"Daily LinkedIn/Indeed/Internshala Jobs - {datetime.now().strftime('%Y-%m-%d')}"
 
-    body = f"Attached are today's job listings ({job_count} results)."
+    body = f"Here are the latest {job_count} jobs from LinkedIn, Indeed, and Internshala in Chennai, Bengaluru, and Coimbatore."
     msg.attach(MIMEText(body, "plain"))
 
     with open(attachment_path, "rb") as f:
@@ -104,11 +117,11 @@ def send_email(attachment_path, job_count):
     except Exception as e:
         print(f"[!] Failed to send email: {e}")
 
-# ----- MAIN -----
+# ----------------- MAIN -----------------
 if __name__ == "__main__":
     all_jobs = []
     for kw in KEYWORDS:
-        print(f"[*] Searching: {kw}")
+        print(f"[*] Searching for: {kw}")
         all_jobs.extend(fetch_jobs(kw))
 
     if all_jobs:
