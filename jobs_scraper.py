@@ -14,37 +14,46 @@ KEYWORDS = [
     "Software Developer"
 ]
 
-# ✅ Only keep these exact sources
+# ✅ Only allow these sources
 VALID_SOURCES = ["linkedin", "indeed", "internshala", "naukri"]
 
-# 🚫 Block anything containing these patterns
+# 🚫 Expanded blacklist with fuzzy pattern coverage
 BLOCK_PATTERNS = [
-    r"what.?jobs", r"career", r"careers", r"recruit", r"roche", r"adobe",
-    r"agoda", r"ebay", r"barclays", r"philips", r"accenture", r"hitachi",
-    r"netapp", r"dice", r"ziprecruiter", r"monster", r"glassdoor",
-    r"simplyhired", r"energy", r"bnp", r"shaw", r"team", r"paribas"
+    r"what.?jobs?", r"career", r"recruit", r"roche", r"adobe", r"agoda",
+    r"ebay", r"barclays", r"philips", r"accenture", r"hitachi", r"netapp",
+    r"bnpparibas", r"bnp", r"shaw", r"team", r"dice", r"ziprecruiter",
+    r"monster", r"glassdoor", r"simplyhired", r"energy", r"workday",
+    r"amazon", r"jobdirect", r"groupe", r"infosys", r"capgemini"
 ]
 
 VALID_CITIES = ["chennai", "bengaluru", "coimbatore"]
-FRESHER_KEYWORDS = [
-    "fresher", "0 years", "0 year", "entry level", "graduate trainee", "new graduate"
-]
+FRESHER_KEYWORDS = ["fresher", "0 years", "0 year", "entry level", "graduate trainee", "new graduate"]
 
 CSV_FILENAME = "job_results.csv"
 
-# ---------------- FILTER FUNCTIONS ----------------
+
+# ---------------- FILTERS ----------------
+def clean_text(text: str) -> str:
+    """Normalize publisher name for consistent matching."""
+    if not text:
+        return ""
+    t = re.sub(r"[^a-z0-9]", "", text.lower())  # remove symbols/spaces
+    return t
+
+
 def is_valid_source(source: str) -> bool:
-    """Allow only exact trusted sources; reject common spam/career sites."""
+    """Accept only whitelisted publishers; block fuzzy matches."""
     if not source:
         return False
-    s = source.strip().lower()
+    s = clean_text(source)
 
-    # Reject if any blocked pattern matches
-    if any(re.search(pat, s) for pat in BLOCK_PATTERNS):
+    # Reject if it looks like any blacklisted pattern
+    if any(re.search(p, s) for p in BLOCK_PATTERNS):
         return False
 
-    # Accept if the name clearly matches allowed sources
+    # Accept if it clearly matches allowed ones
     return any(ok in s for ok in VALID_SOURCES)
+
 
 def is_valid_city(city: str) -> bool:
     """Check if city is one of Chennai, Bengaluru, Coimbatore."""
@@ -53,10 +62,12 @@ def is_valid_city(city: str) -> bool:
     city = city.lower()
     return any(c in city for c in VALID_CITIES)
 
+
 def is_fresher_job(title: str, desc: str) -> bool:
     """Detect fresher/0-year roles in title or description."""
     text = f"{title or ''} {desc or ''}".lower()
     return any(k in text for k in FRESHER_KEYWORDS)
+
 
 # ---------------- FETCH JOBS ----------------
 def fetch_jobs(keyword):
@@ -87,8 +98,9 @@ def fetch_jobs(keyword):
                 desc = job.get("job_description", "")
                 city_name = job.get("job_city", "")
 
-                # Apply filters
+                # --- FILTERING ---
                 if not is_valid_source(source):
+                    print(f"[x] Rejected: {source}")
                     continue
                 if not is_valid_city(city_name):
                     continue
@@ -110,6 +122,7 @@ def fetch_jobs(keyword):
     print(f"[+] {keyword}: {len(results)} matching jobs found.")
     return results
 
+
 # ---------------- SAVE TO CSV ----------------
 def save_to_csv(jobs):
     if not jobs:
@@ -120,6 +133,7 @@ def save_to_csv(jobs):
     df.to_csv(CSV_FILENAME, index=False, encoding="utf-8")
     print(f"[+] Saved {len(df)} jobs to {CSV_FILENAME}")
     return CSV_FILENAME
+
 
 # ---------------- MAIN ----------------
 if __name__ == "__main__":
