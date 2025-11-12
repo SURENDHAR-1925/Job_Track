@@ -69,12 +69,14 @@ def send_email(attachment_path=None, job_count=0):
     msg = MIMEMultipart()
     msg["From"] = EMAIL_USER
     msg["To"] = EMAIL_TO
+    msg["Reply-To"] = EMAIL_USER
     msg["Subject"] = f"Daily Job Alerts ({job_count} results) - {datetime.now():%Y-%m-%d %H:%M}"
+    msg["X-Mailer"] = "GitHub-Actions-Mailer"
 
     body = (
-        f"Attached are {job_count} job results for today."
+        f"Attached are {job_count} job results for today.\n\n-- Automated Daily Job Tracker"
         if job_count > 0
-        else "No new job results today — sending test email to confirm Gmail delivery."
+        else "No new job results today.\n\nThis is a Gmail delivery test — email system is working correctly."
     )
     msg.attach(MIMEText(body, "plain"))
 
@@ -87,15 +89,17 @@ def send_email(attachment_path=None, job_count=0):
         msg.attach(part)
 
     try:
-        print(f"[*] Connecting to SMTP {SMTP_SERVER}:{SMTP_PORT} as {EMAIL_USER}")
+        print(f"[*] Connecting to {SMTP_SERVER}:{SMTP_PORT} as {EMAIL_USER}")
         with smtplib.SMTP(SMTP_SERVER, SMTP_PORT, timeout=60) as s:
+            s.set_debuglevel(1)  # 🔍 show full SMTP conversation
             s.ehlo()
             s.starttls()
+            s.ehlo()
             s.login(EMAIL_USER, EMAIL_PASS)
             print("[SMTP] Login successful.")
             resp = s.sendmail(EMAIL_USER, [EMAIL_TO], msg.as_string())
             print("[SMTP] Server response:", resp)
-        print("[+] Email sent successfully.")
+        print("[+] Email sent successfully to:", EMAIL_TO)
     except Exception as e:
         print(f"[!] Email failed: {e}")
 
