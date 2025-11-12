@@ -24,7 +24,7 @@ KEYWORDS = [
 
 # Allowed publisher substrings and link domains
 ALLOWED_PUBLISHER_SUBSTRINGS = ["linkedin", "indeed", "internshala", "naukri"]
-ALLOWED_DOMAINS = ["linkedin.com", "naukri.com", "indeed.co", "indeed.com", "internshala.com"]
+ALLOWED_DOMAINS = ["linkedin.com", "naukri.com", "indeed.com", "internshala.com"]
 
 # Cities and fresher keywords
 VALID_CITIES = ["chennai", "bengaluru", "coimbatore"]
@@ -48,7 +48,6 @@ def domain_from_url(url):
     try:
         p = urlparse(url)
         host = p.netloc.lower()
-        # remove www.
         if host.startswith("www."):
             host = host[4:]
         return host
@@ -94,28 +93,80 @@ def fetch_for_keyword_and_city(keyword, city):
         print("[!] API error:", e)
         return []
 
-# ---------- main run ----------
+# ---------- email ----------
+def send_email_with_attachment(path, count):
+    if not (SMTP_SERVER and EMAIL_USER and EMAIL_PASS and EMAIL_TO):
+        print("[!] Email config missing. Skipping email.")
+        return
+
+    subject = f"Fresher Jobs ({count}) — LinkedIn/Indeed/Internshala/Naukri — {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+    body = f"Attached are {count} fresher jobs (Chennai/Bengaluru/Coimbatore)."
+
+    msg = MIMEMultipart()
+    msg["From"] = EMAIL_USER
+    msg["To"] = EMAIL_TO
+    msg["Subject"] = subject
+    msg.attach(MIMEText(body, "plain"))
+
+    if os.path.exists(path):
+        with open(path, "rb") as f:
+            part = MIMEBase("application", "octet-stream")
+            part.set_payload(f.read())
+        encoders.encode_base64(part)
+        part.add_header("Content-Disposition", f'attachment; filename="{os.path.basename(path)}"')
+        msg.attach(part)
+
+    try:
+        print("[*] Connecting to SMTP:", SMTP_SERVER, SMTP_PORT)
+        s = smtplib.SMTP(SMTP_SERVER, SMTP_PORT, timeout=60)
+        s.ehlo()
+        s.starttls()
+        s.login(EMAIL_USER, EMAIL_PASS)
+        s.sendmail(EMAIL_USER, [EMAIL_TO], msg.as_string())
+        s.quit()
+        print("[+] Email sent successfully to", EMAIL_TO)
+    except Exception as e:
+        print("[!] Email failed:", e)
+
+def test_email():
+    """Send a quick test email before job scraping."""
+    if not (SMTP_SERVER and EMAIL_USER and EMAIL_PASS and EMAIL_TO):
+        print("[!] Email config missing for test.")
+        return
+    try:
+        msg = MIMEText("✅ Test email from GitHub Actions Job Tracker.\nIf you see this, your email setup works!")
+        msg["Subject"] = "GitHub Actions Email Test"
+        msg["From"] = EMAIL_USER
+        msg["To"] = EMAIL_TO
+        s = smtplib.SMTP(SMTP_SERVER, SMTP_PORT, timeout=30)
+        s.starttls()
+        s.login(EMAIL_USER, EMAIL_PASS)
+        s.sendmail(EMAIL_USER, [EMAIL_TO], msg.as_string())
+        s.quit()
+        print("[+] Test email sent successfully.")
+    except Exception as e:
+        print("[!] Test email failed:", e)
+
+# ---------- main ----------
 def main():
-    accepted = []
-    rejected = []
+    accepted, rejected = [], []
 
     for kw in KEYWORDS:
         for city in VALID_CITIES:
             print(f"[*] Searching '{kw}' in {city} ...")
             items = fetch_for_keyword_and_city(kw, city)
-            print(f"    -> returned {len(items)} items from API")
+            print(f"    -> returned {len(items)} items")
 
             for job in items:
-                title = job.get("job_title") or ""
-                desc = job.get("job_description") or ""
-                pub = job.get("job_publisher") or ""
-                job_city = job.get("job_city") or ""
+                title = job.get("job_title", "")
+                desc = job.get("job_description", "")
+                pub = job.get("job_publisher", "")
+                job_city = job.get("job_city", "")
                 link = job.get("job_apply_link") or job.get("job_link") or ""
 
-                # criteria: (link domain allowed OR publisher allowed) AND city allowed AND fresher
                 domain_ok = allowed_by_domain(link)
                 pub_ok = allowed_by_publisher(pub)
-                city_ok = is_valid_city(job_city) or is_valid_city(city)  # either job city or query city
+                city_ok = is_valid_city(job_city) or is_valid_city(city)
                 fresher_ok = is_fresher(title, desc)
 
                 if (domain_ok or pub_ok) and city_ok and fresher_ok:
@@ -128,74 +179,28 @@ def main():
                         "source": pub
                     })
                 else:
-                    reason_parts = []
-                    if not (domain_ok or pub_ok):
-                        reason_parts.append(f"bad_source(domain={domain_from_url(link)},pub={pub})")
-                    if not city_ok:
-                        reason_parts.append(f"bad_city({job_city})")
-                    if not fresher_ok:
-                        reason_parts.append("not_fresher")
-                    reason = ";".join(reason_parts) or "unknown"
+                    reason = []
+                    if not (domain_ok or pub_ok): reason.append("bad_source")
+                    if not city_ok: reason.append("bad_city")
+                    if not fresher_ok: reason.append("not_fresher")
                     rejected.append({
-                        "title": title,
-                        "company": job.get("employer_name", ""),
-                        "location": job_city,
-                        "link": link,
-                        "source": pub,
-                        "reason": reason
+                        "title": title, "company": job.get("employer_name", ""),
+                        "location": job_city, "link": link, "source": pub,
+                        "reason": ",".join(reason)
                     })
-                    # debug print few rejections so you can see what's happening
-                    print(f"    [x] Reject: source='{pub}' link='{domain_from_url(link)}' city='{job_city}' reasons={reason}")
 
-    # save CSVs
-    df_acc = pd.DataFrame(accepted)
-    df_rej = pd.DataFrame(rejected)
+    # Save CSVs
+    pd.DataFrame(accepted).to_csv(CSV_ACCEPT, index=False)
+    pd.DataFrame(rejected).to_csv(CSV_REJECT, index=False)
+    print(f"[+] Accepted {len(accepted)} -> {CSV_ACCEPT}")
+    print(f"[+] Rejected {len(rejected)} -> {CSV_REJECT}")
 
-    df_acc.to_csv(CSV_ACCEPT, index=False, encoding="utf-8")
-    df_rej.to_csv(CSV_REJECT, index=False, encoding="utf-8")
-
-    print(f"[+] Accepted {len(df_acc)} rows -> {CSV_ACCEPT}")
-    print(f"[+] Rejected {len(df_rej)} rows -> {CSV_REJECT}")
-
-    # send email if any accepted rows
-    if len(df_acc) > 0:
-        send_email_with_attachment(CSV_ACCEPT, len(df_acc))
+    if accepted:
+        send_email_with_attachment(CSV_ACCEPT, len(accepted))
     else:
         print("[*] No accepted jobs to email.")
 
-# ---------- email ----------
-def send_email_with_attachment(path, count):
-    if not (SMTP_SERVER and EMAIL_USER and EMAIL_PASS and EMAIL_TO):
-        print("[!] Email config missing (EMAIL_SMTP_SERVER, EMAIL_USER, EMAIL_PASS, EMAIL_TO). Skipping email.")
-        return
-
-    subject = f"Fresher Jobs ({count}) — LinkedIn/Indeed/Internshala/Naukri — {datetime.now().strftime('%Y-%m-%d %H:%M')}"
-    body = f"Attached are {count} fresher jobs (Chennai/Bengaluru/Coimbatore)."
-
-    msg = MIMEMultipart()
-    msg["From"] = EMAIL_USER
-    msg["To"] = EMAIL_TO
-    msg["Subject"] = subject
-    msg.attach(MIMEText(body, "plain"))
-
-    with open(path, "rb") as f:
-        part = MIMEBase("application", "octet-stream")
-        part.set_payload(f.read())
-    encoders.encode_base64(part)
-    part.add_header("Content-Disposition", f'attachment; filename="{os.path.basename(path)}"')
-    msg.attach(part)
-
-    try:
-        s = smtplib.SMTP(SMTP_SERVER, SMTP_PORT, timeout=60)
-        s.ehlo()
-        s.starttls()
-        s.ehlo()
-        s.login(EMAIL_USER, EMAIL_PASS)
-        s.sendmail(EMAIL_USER, [EMAIL_TO], msg.as_string())
-        s.quit()
-        print("[+] Email sent to", EMAIL_TO)
-    except Exception as e:
-        print("[!] Email failed:", e)
-
 if __name__ == "__main__":
+    print("[*] EMAIL CONFIG:", SMTP_SERVER, SMTP_PORT, EMAIL_USER, "TO:", EMAIL_TO)
+    test_email()  # <-- Always send a test mail before scraping
     main()
